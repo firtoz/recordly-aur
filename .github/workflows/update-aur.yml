@@ -4,12 +4,21 @@ on:
   schedule:
     - cron: "0 */6 * * *"
   workflow_dispatch:
+    inputs:
+      push:
+        description: "Push to AUR (default: dry run only)"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   update:
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
+    env:
+      # Cron = really push; manual run = dry run unless "push" is checked
+      PUSH_TO_AUR: ${{ github.event_name == 'schedule' || github.event.inputs.push == 'true' }}
     steps:
       - name: Install dependencies
         run: |
@@ -28,4 +37,10 @@ jobs:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
 
       - name: Run update script
-        run: ./update-aur.sh
+        run: |
+          if [ "${{ env.PUSH_TO_AUR }}" = "true" ]; then
+            ./update-aur.sh
+          else
+            echo "Dry run (set workflow input push=true to push to AUR)"
+            DRY_RUN=1 ./update-aur.sh
+          fi
