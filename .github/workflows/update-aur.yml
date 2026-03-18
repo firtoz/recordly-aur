@@ -1,0 +1,31 @@
+name: Update AUR
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm base-devel git curl jq
+
+      - name: Checkout helper repo
+        uses: actions/checkout@v4
+
+      - name: Set up AUR SSH key
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s' "$AUR_SSH_KEY" > ~/.ssh/aur_key
+          chmod 600 ~/.ssh/aur_key
+          printf 'Host aur.archlinux.org\n  IdentityFile ~/.ssh/aur_key\n  StrictHostKeyChecking no\n' > ~/.ssh/config
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+
+      - name: Run update script
+        run: ./update-aur.sh
