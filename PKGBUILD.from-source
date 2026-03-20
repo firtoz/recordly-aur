@@ -1,0 +1,53 @@
+# Maintainer: firtoz <aur@firtoz.com>
+# Upstream: https://github.com/webadderall/Recordly
+# Local build: after `npm run build:linux` in a Recordly clone, copy release/Recordly.AppImage here as
+# Recordly-linux-x64.AppImage, then from this directory: makepkg -p PKGBUILD.from-source -si
+# Installs recordly-bin-local alongside the AUR recordly-bin package.
+
+pkgname=recordly-bin-local
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Recordly screen recorder (local build from source)"
+arch=(x86_64)
+url="https://github.com/webadderall/Recordly"
+license=(MIT)
+depends=(fuse2)
+source=(
+  "Recordly-linux-x64.AppImage"
+  "recordly-local.desktop"
+  "LICENSE.md::https://raw.githubusercontent.com/webadderall/Recordly/main/LICENSE.md"
+)
+sha256sums=(
+  'SKIP'
+  'b20f88df03f2d1f5c9321adfca70e61c74b324c34048fe8c513050e8c8f3d04b'
+  'SKIP'
+)
+options=(!strip)
+
+package() {
+  install -d "$pkgdir/opt/recordly-local"
+  install -Dm755 "$srcdir/Recordly-linux-x64.AppImage" "$pkgdir/opt/recordly-local/Recordly.AppImage"
+
+  install -d "$pkgdir/usr/bin"
+  cat > "$pkgdir/usr/bin/recordly-local" << 'EOF'
+#!/bin/sh
+exec /opt/recordly-local/Recordly.AppImage "$@"
+EOF
+  chmod 755 "$pkgdir/usr/bin/recordly-local"
+
+  install -Dm644 "$srcdir/recordly-local.desktop" "$pkgdir/usr/share/applications/dev.recordly.app.local.desktop"
+
+  install -d "$pkgdir/usr/share/licenses/$pkgname"
+  install -Dm644 "$srcdir/LICENSE.md" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+  cd "$srcdir"
+  chmod +x Recordly-linux-x64.AppImage
+  ./Recordly-linux-x64.AppImage --appimage-extract
+  for size in 16 24 32 48 64 128 256 512 1024; do
+    src="squashfs-root/usr/share/icons/hicolor/${size}x${size}/apps/recordly.png"
+    if [ -f "$src" ]; then
+      install -Dm644 "$src" "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/dev.recordly.app.local.png"
+    fi
+  done
+  rm -rf squashfs-root
+}

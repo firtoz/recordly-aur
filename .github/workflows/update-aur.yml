@@ -11,8 +11,13 @@ on:
         default: false
         type: boolean
 
+# Forks: skip scheduled/manual runs (no secrets, avoids failed cron noise). Change the repo literal if you rename.
+permissions:
+  contents: read
+
 jobs:
   update:
+    if: github.repository == 'firtoz/recordly-aur'
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
@@ -21,26 +26,60 @@ jobs:
       PUSH_TO_AUR: ${{ github.event_name == 'schedule' || github.event.inputs.push == 'true' }}
     steps:
       - name: Install dependencies
+        # openssh: required for git clone ssh://aur@… (git lists it as optional on Arch)
+        run: pacman -Syu --noconfirm base-devel git curl openssh
+
+      - name: Install Bun
         run: |
-          pacman -Syu --noconfirm base-devel git curl jq
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Checkout helper repo
         uses: actions/checkout@v4
 
-      - name: Set up AUR SSH key
+      - name: Validate AUR SSH key (push runs only)
+        if: env.PUSH_TO_AUR == 'true'
+        run: |
+          if [ -z "${AUR_SSH_KEY}" ]; then
+            echo "::error::Secret AUR_SSH_KEY is empty. Add the private key used on the AUR package page."
+            exit 1
+          fi
+          first=$(printf '%s' "$AUR_SSH_KEY" | head -n1)
+          case "$first" in
+            "-----BEGIN OPENSSH PRIVATE KEY-----") ;;
+            "-----BEGIN RSA PRIVATE KEY-----") ;;
+            "-----BEGIN EC PRIVATE KEY-----") ;;
+            "-----BEGIN PRIVATE KEY-----") ;;
+            *)
+              echo "::error::AUR_SSH_KEY does not start with a PEM private-key header."
+              exit 1
+              ;;
+          esac
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+
+      - name: Set up SSH for AUR
         run: |
           install -m 700 -d ~/.ssh
+          ssh-keyscan -t ed25519,rsa -H aur.archlinux.org >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
           printf '%s' "$AUR_SSH_KEY" > ~/.ssh/aur_key
           chmod 600 ~/.ssh/aur_key
-          printf 'Host aur.archlinux.org\n  IdentityFile ~/.ssh/aur_key\n  StrictHostKeyChecking no\n' > ~/.ssh/config
+          {
+            echo 'Host aur.archlinux.org'
+            echo '  IdentityFile ~/.ssh/aur_key'
+            echo '  UserKnownHostsFile ~/.ssh/known_hosts'
+            echo '  StrictHostKeyChecking yes'
+          } > ~/.ssh/config
         env:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
 
       - name: Run update script
         run: |
+          export PATH="${HOME}/.bun/bin:${PATH}"
           if [ "${{ env.PUSH_TO_AUR }}" = "true" ]; then
-            ./update-aur.sh
+            bun run update-aur.ts
           else
             echo "Dry run (set workflow input push=true to push to AUR)"
-            DRY_RUN=1 ./update-aur.sh
+            DRY_RUN=1 bun run update-aur.ts
           fi

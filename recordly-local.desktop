@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Recordly (Local)
+Comment=Screen recorder and editor with auto-zoom and cursor effects (build from source)
+Exec=recordly-local %U
+Icon=dev.recordly.app.local
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;
+StartupWMClass=Recordly
