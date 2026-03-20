@@ -60,17 +60,19 @@ jobs:
 
       - name: Set up SSH for AUR
         run: |
-          install -m 700 -d ~/.ssh
-          ssh-keyscan -t ed25519,rsa -H aur.archlinux.org >> ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
-          printf '%s' "$AUR_SSH_KEY" > ~/.ssh/aur_key
-          chmod 600 ~/.ssh/aur_key
+          install -m 700 -d "${HOME}/.ssh"
+          ssh-keyscan -t ed25519,rsa -H aur.archlinux.org >> "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+          printf '%s' "$AUR_SSH_KEY" > "${HOME}/.ssh/aur_key"
+          chmod 600 "${HOME}/.ssh/aur_key"
+          # Use $HOME in the file, not ~/. OpenSSH expands ~ from passwd (e.g. /root) while
+          # GHA container sets HOME=/github/home, so literal ~ would miss our known_hosts.
           {
             echo 'Host aur.archlinux.org'
-            echo '  IdentityFile ~/.ssh/aur_key'
-            echo '  UserKnownHostsFile ~/.ssh/known_hosts'
+            echo "  IdentityFile ${HOME}/.ssh/aur_key"
+            echo "  UserKnownHostsFile ${HOME}/.ssh/known_hosts"
             echo '  StrictHostKeyChecking yes'
-          } > ~/.ssh/config
+          } > "${HOME}/.ssh/config"
         env:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
 
