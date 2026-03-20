@@ -10,16 +10,11 @@ on:
         required: false
         default: false
         type: boolean
-      cli_args:
-        description: "Extra CLI args for update-aur.ts (manual only), e.g. --force"
+      force:
+        description: "Force checksum refresh / pkgrel bump even if pkgver is unchanged"
         required: false
-        default: ""
-        type: string
-      extra_env:
-        description: "Extra env vars for manual run, e.g. FORCE=1 UPSTREAM_REPO=owner/repo"
-        required: false
-        default: ""
-        type: string
+        default: false
+        type: boolean
 
 # Forks: skip scheduled/manual runs (no secrets, avoids failed cron noise). Change the repo literal if you rename.
 permissions:
@@ -113,14 +108,9 @@ jobs:
           export PATH="${HOME}/.bun/bin:${PATH}"
           # Bun/git subprocesses may not see the same HOME as the shell; force SSH options.
           export GIT_SSH_COMMAND="ssh -i ${HOME}/.ssh/aur_key -o UserKnownHostsFile=${HOME}/.ssh/known_hosts -o StrictHostKeyChecking=yes"
-          cli_args='${{ github.event.inputs.cli_args || '' }}'
-          extra_env='${{ github.event.inputs.extra_env || '' }}'
           run_cmd="bun run update-aur.ts"
-          if [ -n "$cli_args" ]; then
-            run_cmd="$run_cmd $cli_args"
-          fi
-          if [ -n "$extra_env" ]; then
-            run_cmd="$extra_env $run_cmd"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force }}" = "true" ]; then
+            run_cmd="$run_cmd --force"
           fi
           if [ "${{ env.PUSH_TO_AUR }}" = "true" ]; then
             runuser -u builder -- env HOME="${HOME}" PATH="${PATH}" GIT_SSH_COMMAND="${GIT_SSH_COMMAND}" \

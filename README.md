@@ -36,4 +36,4 @@ This installs `recordly-bin-local` and a “Recordly (Local)” menu entry. Unin
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See Recordly upstream [LICENSE.md](https://github.com/webadderall/Recordly/blob/main/LICENSE.md).
