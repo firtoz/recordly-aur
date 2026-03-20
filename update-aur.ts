@@ -133,6 +133,8 @@ function validatePatchedPkgbuild(
 async function main(): Promise<void> {
 	const pkgbuildPath = join(templateDir, "PKGBUILD");
 	const desktopPath = join(templateDir, "recordly.desktop");
+	const templateLicensePath = join(templateDir, "LICENSE");
+	const templateHasPackagingLicense = await Bun.file(templateLicensePath).exists();
 	try {
 		await readFile(pkgbuildPath);
 		await readFile(desktopPath);
@@ -177,6 +179,10 @@ async function main(): Promise<void> {
 
 		await copyFile(pkgbuildPath, join(aurDir, "PKGBUILD"));
 		await copyFile(desktopPath, join(aurDir, "recordly.desktop"));
+		if (!templateHasPackagingLicense) {
+			// Keep AUR checkout aligned with templates: drop legacy packaging LICENSE if removed locally.
+			run("git", ["rm", "-f", "--ignore-unmatch", "LICENSE"], { cwd: aurDir, inherit: true });
+		}
 
 		const licensePath = join(workDir, "LICENSE.md");
 		await downloadToFile(`${rawBase}/${latestTag}/LICENSE.md`, licensePath);
@@ -230,7 +236,7 @@ async function main(): Promise<void> {
 			return;
 		}
 
-		run("git", ["add", "PKGBUILD", ".SRCINFO", "recordly.desktop"], {
+		run("git", ["add", "-A", "PKGBUILD", ".SRCINFO", "recordly.desktop", "LICENSE"], {
 			cwd: aurDir,
 			inherit: true,
 		});
