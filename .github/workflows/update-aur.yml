@@ -90,14 +90,24 @@ jobs:
         env:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
 
+      - name: Non-root user for makepkg
+        run: |
+          # makepkg refuses to run as root (Arch); run the update script as builder.
+          if ! id builder >/dev/null 2>&1; then
+            useradd -m -s /bin/bash builder
+          fi
+          chown -R builder:builder "${HOME}" "${GITHUB_WORKSPACE}"
+
       - name: Run update script
         run: |
           export PATH="${HOME}/.bun/bin:${PATH}"
           # Bun/git subprocesses may not see the same HOME as the shell; force SSH options.
           export GIT_SSH_COMMAND="ssh -i ${HOME}/.ssh/aur_key -o UserKnownHostsFile=${HOME}/.ssh/known_hosts -o StrictHostKeyChecking=yes"
           if [ "${{ env.PUSH_TO_AUR }}" = "true" ]; then
-            bun run update-aur.ts
+            runuser -u builder -- env HOME="${HOME}" PATH="${PATH}" GIT_SSH_COMMAND="${GIT_SSH_COMMAND}" \
+              bash -lc "cd \"${GITHUB_WORKSPACE}\" && bun run update-aur.ts"
           else
             echo "Dry run (set workflow input push=true to push to AUR)"
-            DRY_RUN=1 bun run update-aur.ts
+            runuser -u builder -- env HOME="${HOME}" PATH="${PATH}" GIT_SSH_COMMAND="${GIT_SSH_COMMAND}" \
+              bash -lc "cd \"${GITHUB_WORKSPACE}\" && DRY_RUN=1 bun run update-aur.ts"
           fi
