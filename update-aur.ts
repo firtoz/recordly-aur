@@ -236,7 +236,7 @@ async function main(): Promise<void> {
 			return;
 		}
 
-		run("git", ["add", "-A", "PKGBUILD", ".SRCINFO", "recordly.desktop", "LICENSE"], {
+		run("git", ["add", "-A", "."], {
 			cwd: aurDir,
 			inherit: true,
 		});
