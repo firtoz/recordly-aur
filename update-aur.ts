@@ -10,10 +10,7 @@
  *
  * Run: bun update-aur.ts   |   bun update-aur.ts --dry-run
  */
-import { spawnSync } from "node:child_process";
-import { createReadStream, createWriteStream } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -22,6 +19,10 @@ const dryRun =
 	process.env.DRY_RUN === "1" ||
 	process.env.DRY_RUN === "true" ||
 	process.argv.includes("--dry-run");
+const forceRefresh =
+	process.env.FORCE === "1" ||
+	process.env.FORCE === "true" ||
+	process.argv.includes("--force");
 
 const templateDir = process.env.RECORDLY_TEMPLATE_DIR ?? scriptDir;
 const upstreamRepo = process.env.UPSTREAM_REPO ?? "webadderall/Recordly";
@@ -37,43 +38,32 @@ function die(msg: string): never {
 	process.exit(1);
 }
 
-/** Stream file to SHA-256 without loading whole file into memory. */
+/** Compute SHA-256 via system utility (streaming, no large memory spike). */
 async function sha256File(path: string): Promise<string> {
-	const hash = createHash("sha256");
-	const stream = createReadStream(path);
-	return new Promise((resolve, reject) => {
-		stream.on("data", (chunk: Buffer | string) => {
-			hash.update(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
-		});
-		stream.on("end", () => resolve(hash.digest("hex")));
-		stream.on("error", reject);
+	const proc = Bun.spawnSync({
+		cmd: ["sha256sum", path],
+		stdout: "pipe",
+		stderr: "pipe",
 	});
+	if (proc.exitCode !== 0) {
+		const err = proc.stderr.toString().trim();
+		die(`sha256sum failed for ${path}: ${err || `exit ${proc.exitCode}`}`);
+	}
+	const out = proc.stdout.toString().trim();
+	const hash = out.split(/\s+/)[0];
+	if (!hash || !/^[0-9a-f]{64}$/.test(hash)) {
+		die(`Invalid sha256sum output for ${path}: ${out}`);
+	}
+	return hash;
 }
 
-/** Stream HTTP response body to disk (for large assets e.g. AppImage). */
+/** Save HTTP response body directly to file via Bun.write. */
 async function downloadToFile(url: string, dest: string): Promise<void> {
 	const res = await fetch(url);
 	if (!res.ok) die(`Download failed ${res.status}: ${url}`);
-	const body = res.body;
-	if (!body) die("No response body");
 	await mkdir(dirname(dest), { recursive: true });
-
-	const reader = body.getReader();
-	const stream = createWriteStream(dest);
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			if (value?.byteLength) {
-				await new Promise<void>((resolve, reject) => {
-					stream.write(Buffer.from(value), (err) => (err ? reject(err) : resolve()));
-				});
-			}
-		}
-		await new Promise<void>((resolve, reject) => stream.end((err) => (err ? reject(err) : resolve())));
-	} finally {
-		reader.releaseLock();
-	}
+	const written = await Bun.write(dest, res);
+	if (written <= 0) die(`Downloaded empty file: ${url}`);
 }
 
 function run(
@@ -82,16 +72,16 @@ function run(
 	opts: { cwd: string; inherit?: boolean },
 ): { stdout: string } {
 	const inherit = opts.inherit ?? false;
-	const r = spawnSync(cmd, args, {
+	const r = Bun.spawnSync({
+		cmd: [cmd, ...args],
 		cwd: opts.cwd,
-		stdio: inherit ? "inherit" : ["ignore", "pipe", "inherit"],
-		encoding: "utf-8",
+		stdout: inherit ? "inherit" : "pipe",
+		stderr: "inherit",
 	});
-	if (r.status !== 0) {
-		die(`Command failed (${r.status}): ${cmd} ${args.join(" ")}`);
+	if (r.exitCode !== 0) {
+		die(`Command failed (${r.exitCode}): ${cmd} ${args.join(" ")}`);
 	}
-	const out = r.stdout;
-	return { stdout: typeof out === "string" ? out.trimEnd() : "" };
+	return { stdout: inherit ? "" : (r.stdout?.toString().trimEnd() ?? "") };
 }
 
 async function fetchLatestTag(): Promise<string> {
@@ -162,20 +152,28 @@ async function main(): Promise<void> {
 		});
 
 		let currentVer = "";
+		let currentRel = 1;
 		try {
 			const existing = await readFile(join(aurDir, "PKGBUILD"), "utf-8");
-			const m = /^pkgver=(.*)$/m.exec(existing);
-			if (m) currentVer = m[1]?.trim() ?? "";
+			const verMatch = /^pkgver=(.*)$/m.exec(existing);
+			const relMatch = /^pkgrel=(.*)$/m.exec(existing);
+			if (verMatch) currentVer = verMatch[1]?.trim() ?? "";
+			const parsedRel = Number.parseInt(relMatch?.[1]?.trim() ?? "1", 10);
+			if (Number.isFinite(parsedRel) && parsedRel > 0) currentRel = parsedRel;
 		} catch {
 			/* fresh or missing */
 		}
 
-		if (currentVer === pkgver) {
+		const sameVersion = currentVer === pkgver;
+		if (sameVersion && !forceRefresh) {
 			console.log(`AUR already at ${pkgver}. Nothing to do.`);
 			return;
 		}
 
-		console.log(`Updating ${aurPkg} from ${currentVer || "none"} to ${pkgver} (tag ${latestTag}).`);
+		const nextRel = sameVersion ? currentRel + 1 : 1;
+		console.log(
+			`Updating ${aurPkg} from ${currentVer || "none"}-${currentRel} to ${pkgver}-${nextRel} (tag ${latestTag}).`,
+		);
 
 		await copyFile(pkgbuildPath, join(aurDir, "PKGBUILD"));
 		await copyFile(desktopPath, join(aurDir, "recordly.desktop"));
@@ -207,6 +205,7 @@ async function main(): Promise<void> {
 
 		let pkgbuild = await readFile(join(aurDir, "PKGBUILD"), "utf-8");
 		pkgbuild = pkgbuild.replace(/^pkgver=.*/m, `pkgver=${pkgver}`);
+		pkgbuild = pkgbuild.replace(/^pkgrel=.*/m, `pkgrel=${nextRel}`);
 		pkgbuild = pkgbuild.replace(
 			/^\t'[0-9a-f]{64}'.*# AppImage.*/m,
 			`\t'${appimageSha}' # AppImage v\${pkgver}`,
