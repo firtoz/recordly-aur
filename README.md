@@ -9,7 +9,7 @@ The main Recordly repo documents install for Arch users only (see its README); i
 - **Arch users**: `yay -S recordly-bin` (or any AUR helper). You do not need this repo.
 - **Maintainers**:
   1. On the AUR, be maintainer or co-maintainer of [recordly-bin](https://aur.archlinux.org/packages/recordly-bin); add your SSH **public** key in the package’s “SSH public key” field.
-  2. In this GitHub repo, add the **private** key as the `AUR_SSH_KEY` secret (Settings → Secrets → Actions).
+  2. In this GitHub repo, add the **private** key as the `AUR_SSH_KEY` secret (Settings → Secrets → Actions). PEM text is fine; you can also store `base64 -w0 < privatekey` if multiline secrets misbehave in CI.
   3. Run “Update AUR” manually once to test, or rely on the cron schedule (every 6 hours).
 
 [`update-aur.ts`](./update-aur.ts) (run with **[Bun](https://bun.sh/)**: `bun run update-aur.ts`) picks the latest upstream GitHub release tag, copies `PKGBUILD` + `recordly.desktop` from **this** repo into the AUR checkout, recomputes checksums for the release AppImage and `LICENSE.md`, regenerates `.SRCINFO`, commits, and pushes. Use `DRY_RUN=1 bun run update-aur.ts` or `bun run update-aur:dry` for a diff-only run.

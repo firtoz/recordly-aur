@@ -44,14 +44,23 @@ jobs:
             echo "::error::Secret AUR_SSH_KEY is empty. Add the private key used on the AUR package page."
             exit 1
           fi
-          first=$(printf '%s' "$AUR_SSH_KEY" | head -n1)
+          head11=$(printf '%s' "$AUR_SSH_KEY" | head -c 11)
+          if [ "$head11" = "-----BEGIN" ]; then
+            pem=$(printf '%s' "$AUR_SSH_KEY")
+          else
+            pem=$(printf '%s' "$AUR_SSH_KEY" | base64 -d) || {
+              echo "::error::AUR_SSH_KEY is not PEM and is not valid base64."
+              exit 1
+            }
+          fi
+          first=$(printf '%s' "$pem" | head -n1)
           case "$first" in
             "-----BEGIN OPENSSH PRIVATE KEY-----") ;;
             "-----BEGIN RSA PRIVATE KEY-----") ;;
             "-----BEGIN EC PRIVATE KEY-----") ;;
             "-----BEGIN PRIVATE KEY-----") ;;
             *)
-              echo "::error::AUR_SSH_KEY does not start with a PEM private-key header."
+              echo "::error::AUR_SSH_KEY (after base64 decode, if used) does not start with a PEM private-key header."
               exit 1
               ;;
           esac
@@ -60,26 +69,45 @@ jobs:
 
       - name: Set up SSH for AUR
         run: |
-          install -m 700 -d ~/.ssh
-          ssh-keyscan -t ed25519,rsa -H aur.archlinux.org >> ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
-          printf '%s' "$AUR_SSH_KEY" > ~/.ssh/aur_key
-          chmod 600 ~/.ssh/aur_key
+          install -m 700 -d "${HOME}/.ssh"
+          ssh-keyscan -t ed25519,rsa -H aur.archlinux.org >> "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+          head11=$(printf '%s' "$AUR_SSH_KEY" | head -c 11)
+          if [ "$head11" = "-----BEGIN" ]; then
+            printf '%s' "$AUR_SSH_KEY" > "${HOME}/.ssh/aur_key"
+          else
+            printf '%s' "$AUR_SSH_KEY" | base64 -d > "${HOME}/.ssh/aur_key"
+          fi
+          chmod 600 "${HOME}/.ssh/aur_key"
+          # Use $HOME in the file, not ~/. OpenSSH expands ~ from passwd (e.g. /root) while
+          # GHA container sets HOME=/github/home, so literal ~ would miss our known_hosts.
           {
             echo 'Host aur.archlinux.org'
-            echo '  IdentityFile ~/.ssh/aur_key'
-            echo '  UserKnownHostsFile ~/.ssh/known_hosts'
+            echo "  IdentityFile ${HOME}/.ssh/aur_key"
+            echo "  UserKnownHostsFile ${HOME}/.ssh/known_hosts"
             echo '  StrictHostKeyChecking yes'
-          } > ~/.ssh/config
+          } > "${HOME}/.ssh/config"
         env:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+
+      - name: Non-root user for makepkg
+        run: |
+          # makepkg refuses to run as root (Arch); run the update script as builder.
+          if ! id builder >/dev/null 2>&1; then
+            useradd -m -s /bin/bash builder
+          fi
+          chown -R builder:builder "${HOME}" "${GITHUB_WORKSPACE}"
 
       - name: Run update script
         run: |
           export PATH="${HOME}/.bun/bin:${PATH}"
+          # Bun/git subprocesses may not see the same HOME as the shell; force SSH options.
+          export GIT_SSH_COMMAND="ssh -i ${HOME}/.ssh/aur_key -o UserKnownHostsFile=${HOME}/.ssh/known_hosts -o StrictHostKeyChecking=yes"
           if [ "${{ env.PUSH_TO_AUR }}" = "true" ]; then
-            bun run update-aur.ts
+            runuser -u builder -- env HOME="${HOME}" PATH="${PATH}" GIT_SSH_COMMAND="${GIT_SSH_COMMAND}" \
+              bash -lc "cd \"${GITHUB_WORKSPACE}\" && bun run update-aur.ts"
           else
             echo "Dry run (set workflow input push=true to push to AUR)"
-            DRY_RUN=1 bun run update-aur.ts
+            runuser -u builder -- env HOME="${HOME}" PATH="${PATH}" GIT_SSH_COMMAND="${GIT_SSH_COMMAND}" \
+              bash -lc "cd \"${GITHUB_WORKSPACE}\" && DRY_RUN=1 bun run update-aur.ts"
           fi
