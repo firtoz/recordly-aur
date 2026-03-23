@@ -8,7 +8,7 @@
  * Env: RECORDLY_APPIMAGE_PATH — use this AppImage file instead of downloading
  * Env: UPSTREAM_REPO (default webadderall/Recordly), AUR_PKG (default recordly-bin)
  *
- * Run: bun update-aur.ts   |   bun update-aur.ts --dry-run
+ * Run: bun update-aur.ts   |   bun update-aur.ts --dry-run   |   bun update-aur.ts --verify-only
  */
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -23,6 +23,7 @@ const forceRefresh =
 	process.env.FORCE === "1" ||
 	process.env.FORCE === "true" ||
 	process.argv.includes("--force");
+const verifyOnly = process.argv.includes("--verify-only");
 
 const templateDir = process.env.RECORDLY_TEMPLATE_DIR ?? scriptDir;
 const upstreamRepo = process.env.UPSTREAM_REPO ?? "webadderall/Recordly";
@@ -130,7 +131,80 @@ function validatePatchedPkgbuild(
 	}
 }
 
+/**
+ * No AUR clone: patch template PKGBUILD for the latest release and run
+ * makepkg --verifysource so checksums are checked against a fresh download (CI / local gate).
+ */
+async function verifyPackagingOnly(): Promise<void> {
+	const pkgbuildPath = join(templateDir, "PKGBUILD");
+	const desktopPath = join(templateDir, "recordly.desktop");
+	try {
+		await readFile(pkgbuildPath);
+		await readFile(desktopPath);
+	} catch {
+		die(`Missing PKGBUILD or recordly.desktop in TEMPLATE_DIR (${templateDir})`);
+	}
+
+	const latestTag = await fetchLatestTag();
+	const pkgver = latestTag.startsWith("v") ? latestTag.slice(1) : latestTag;
+	const workDir = await mkdtemp(join(tmpdir(), "recordly-verify-"));
+	const pkgDir = join(workDir, "pkg");
+	try {
+		await mkdir(pkgDir, { recursive: true });
+		await copyFile(pkgbuildPath, join(pkgDir, "PKGBUILD"));
+		await copyFile(desktopPath, join(pkgDir, "recordly.desktop"));
+
+		const licensePath = join(workDir, "LICENSE.md");
+		await downloadToFile(`${rawBase}/${latestTag}/LICENSE.md`, licensePath);
+		const licenseSha = await sha256File(licensePath);
+
+		const appimagePath = join(workDir, "Recordly-linux-x64.AppImage");
+		const localApp = process.env.RECORDLY_APPIMAGE_PATH;
+		if (localApp) {
+			try {
+				await readFile(localApp);
+			} catch {
+				die(`RECORDLY_APPIMAGE_PATH is set but file does not exist: ${localApp}`);
+			}
+			await copyFile(localApp, appimagePath);
+		} else {
+			await downloadToFile(
+				`https://github.com/${upstreamRepo}/releases/download/${latestTag}/Recordly-linux-x64.AppImage`,
+				appimagePath,
+			);
+		}
+		const appimageSha = await sha256File(appimagePath);
+
+		let pkgbuild = await readFile(join(pkgDir, "PKGBUILD"), "utf-8");
+		pkgbuild = pkgbuild.replace(/^pkgver=.*/m, `pkgver=${pkgver}`);
+		pkgbuild = pkgbuild.replace(/^pkgrel=.*/m, "pkgrel=1");
+		pkgbuild = pkgbuild.replace(
+			/^\t'[0-9a-f]{64}'.*# AppImage.*/m,
+			`\t'${appimageSha}' # AppImage v\${pkgver}`,
+		);
+		pkgbuild = pkgbuild.replace(
+			/^\t'[0-9a-f]{64}'.*# Upstream MIT LICENSE.*/m,
+			`\t'${licenseSha}' # Upstream MIT LICENSE`,
+		);
+		validatePatchedPkgbuild(pkgbuild, pkgver, appimageSha, licenseSha);
+		await writeFile(join(pkgDir, "PKGBUILD"), pkgbuild);
+
+		console.log(
+			"Running makepkg --verifysource (re-download sources and match sha256sums)...",
+		);
+		run("makepkg", ["--verifysource", "-C"], { cwd: pkgDir, inherit: true });
+		console.log(`verify-only OK for ${pkgver} (${latestTag}).`);
+	} finally {
+		await rm(workDir, { recursive: true, force: true });
+	}
+}
+
 async function main(): Promise<void> {
+	if (verifyOnly) {
+		await verifyPackagingOnly();
+		return;
+	}
+
 	const pkgbuildPath = join(templateDir, "PKGBUILD");
 	const desktopPath = join(templateDir, "recordly.desktop");
 	const templateLicensePath = join(templateDir, "LICENSE");
@@ -222,6 +296,11 @@ async function main(): Promise<void> {
 		);
 		validatePatchedPkgbuild(pkgbuild, pkgver, appimageSha, licenseSha);
 		await writeFile(join(aurDir, "PKGBUILD"), pkgbuild);
+
+		console.log(
+			"Verifying PKGBUILD: makepkg --verifysource (must match fresh download, not only script cache)...",
+		);
+		run("makepkg", ["--verifysource", "-C"], { cwd: aurDir, inherit: true });
 
 		const { stdout: srcinfo } = run("makepkg", ["--printsrcinfo"], { cwd: aurDir });
 		await writeFile(

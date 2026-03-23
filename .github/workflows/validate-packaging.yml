@@ -1,0 +1,51 @@
+name: Validate packaging
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm base-devel git curl unzip
+
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Non-root user for makepkg
+        run: |
+          if ! id builder >/dev/null 2>&1; then
+            useradd -m -s /bin/bash builder
+          fi
+          chown -R builder:builder "${GITHUB_WORKSPACE}"
+
+      - name: Verify PKGBUILD sources
+        run: |
+          export PATH="${HOME}/.bun/bin:${PATH}"
+          runuser -u builder -- env HOME="${HOME}" PATH="${PATH}" \
+            bash -lc "cd \"${GITHUB_WORKSPACE}\" && bun run verify-packaging"
+
+      - name: Audit AUR vs upstream (job summary)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export PATH="${HOME}/.bun/bin:${PATH}"
+          runuser -u builder -- env \
+            HOME="${HOME}" \
+            PATH="${PATH}" \
+            GITHUB_STEP_SUMMARY="${GITHUB_STEP_SUMMARY}" \
+            GITHUB_TOKEN="${GITHUB_TOKEN}" \
+            bash -lc "cd \"${GITHUB_WORKSPACE}\" && bun run audit-upstream"

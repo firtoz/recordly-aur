@@ -11,6 +11,8 @@
 		"update-aur:dry": "DRY_RUN=1 bun run update-aur.ts",
 		"update-aur:force": "FORCE=1 bun run update-aur.ts",
 		"update-aur:dry:force": "DRY_RUN=1 FORCE=1 bun run update-aur.ts",
+		"verify-packaging": "bun run update-aur.ts --verify-only",
+		"audit-upstream": "bun run audit-upstream.ts",
 		"typecheck": "tsc --noEmit"
 	},
 	"devDependencies": {
