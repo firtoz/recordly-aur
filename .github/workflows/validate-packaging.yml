@@ -38,14 +38,10 @@ jobs:
           runuser -u builder -- env HOME="${HOME}" PATH="${PATH}" \
             bash -lc "cd \"${GITHUB_WORKSPACE}\" && bun run verify-packaging"
 
+      # Run as root (not builder): GITHUB_STEP_SUMMARY is only writable by the runner user.
       - name: Audit AUR vs upstream (job summary)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           export PATH="${HOME}/.bun/bin:${PATH}"
-          runuser -u builder -- env \
-            HOME="${HOME}" \
-            PATH="${PATH}" \
-            GITHUB_STEP_SUMMARY="${GITHUB_STEP_SUMMARY}" \
-            GITHUB_TOKEN="${GITHUB_TOKEN}" \
-            bash -lc "cd \"${GITHUB_WORKSPACE}\" && bun run audit-upstream"
+          cd "${GITHUB_WORKSPACE}" && bun run audit-upstream
