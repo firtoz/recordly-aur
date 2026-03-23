@@ -315,7 +315,8 @@ async function main(): Promise<void> {
 			return;
 		}
 
-		run("git", ["add", "-A", "."], {
+		// Never `git add -A`: makepkg --verifysource leaves large files under src/; AUR rejects >~488KiB blobs.
+		run("git", ["add", "PKGBUILD", ".SRCINFO", "recordly.desktop"], {
 			cwd: aurDir,
 			inherit: true,
 		});
