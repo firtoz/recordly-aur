@@ -11,9 +11,9 @@ url="https://github.com/webadderall/Recordly"
 license=(MIT)
 depends=(fuse2)
 source=(
-	"https://github.com/webadderall/Recordly/releases/download/v${pkgver}/Recordly-linux-x64.AppImage"
+	"Recordly-linux-x64-${pkgver}.AppImage::https://github.com/webadderall/Recordly/releases/download/v${pkgver}/Recordly-linux-x64.AppImage"
 	"recordly.desktop"
-	"LICENSE::https://raw.githubusercontent.com/webadderall/Recordly/v${pkgver}/LICENSE.md"
+	"LICENSE-${pkgver}::https://raw.githubusercontent.com/webadderall/Recordly/v${pkgver}/LICENSE.md"
 )
 sha256sums=(
 	'0000000000000000000000000000000000000000000000000000000000000000' # AppImage v${pkgver}
@@ -24,7 +24,7 @@ options=(!strip)
 
 package() {
 	install -d "$pkgdir/opt/recordly"
-	install -Dm755 "$srcdir/Recordly-linux-x64.AppImage" "$pkgdir/opt/recordly/Recordly.AppImage"
+	install -Dm755 "$srcdir/Recordly-linux-x64-${pkgver}.AppImage" "$pkgdir/opt/recordly/Recordly.AppImage"
 
 	install -d "$pkgdir/usr/bin"
 	cat > "$pkgdir/usr/bin/recordly" << 'EOF'
@@ -36,11 +36,11 @@ EOF
 	install -Dm644 "$srcdir/recordly.desktop" "$pkgdir/usr/share/applications/dev.recordly.app.desktop"
 
 	install -d "$pkgdir/usr/share/licenses/$pkgname"
-	install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	install -Dm644 "$srcdir/LICENSE-${pkgver}" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 
 	cd "$srcdir"
-	chmod +x Recordly-linux-x64.AppImage
-	./Recordly-linux-x64.AppImage --appimage-extract
+	chmod +x "Recordly-linux-x64-${pkgver}.AppImage"
+	./"Recordly-linux-x64-${pkgver}.AppImage" --appimage-extract
 	for size in 16 24 32 48 64 128 256 512 1024; do
 		src="squashfs-root/usr/share/icons/hicolor/${size}x${size}/apps/recordly.png"
 		if [ -f "$src" ]; then
