@@ -25,6 +25,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check AUR pkgver vs GitHub releases/latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export PATH="${HOME}/.bun/bin:${PATH}"
+          cd "${GITHUB_WORKSPACE}" && bun run check-aur-vs-latest
+
       - name: Non-root user for makepkg
         run: |
           if ! id builder >/dev/null 2>&1; then
