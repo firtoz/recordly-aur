@@ -44,11 +44,11 @@ This installs `recordly-bin-local` and a “Recordly (Local)” menu entry. Unin
 
 - **Host keys:** The workflow runs `ssh-keyscan` for `aur.archlinux.org` and uses `StrictHostKeyChecking yes` with that `known_hosts` file (no blind `accept-new` / `no`).
 - **Secret:** On push runs, the workflow checks that `AUR_SSH_KEY` is non-empty and looks like a PEM private key (only the first line is inspected in logs).
-- **PKGBUILD patch:** `update-aur.ts` asserts after editing that placeholder checksums are gone, `pkgver` matches, both hashes appear, and the tab-indented `# AppImage` / `# Upstream MIT LICENSE` lines still match the expected shape.
+- **PKGBUILD patch:** `update-aur.ts` asserts after editing that placeholder checksums are gone, `pkgver` matches, both hashes appear, and the tab-indented `# AppImage` / `# Upstream AGPL LICENSE` lines still match the expected shape.
 - **Pre-publish verify:** After patching, the script runs `makepkg --verifysource -C` in the AUR tree so checksums are checked against a **second** fresh download (not only the bytes used to fill `sha256sums`). If upstream replaces a release asset after you publish, users see `FAILED` until you bump `pkgrel` with new sums (e.g. `FORCE=1 bun run update-aur.ts`). PRs and pushes also run [`validate-packaging.yml`](./.github/workflows/validate-packaging.yml): `bun run check-aur-vs-latest` (AUR `pkgver` must not be ahead of GitHub Latest), then `bun run verify-packaging` (latest GitHub release vs a patched PKGBUILD; no AUR clone), then `bun run audit-upstream` (published AUR checksums vs live downloads).
 - **Downloads:** Release assets are streamed to disk; SHA-256 is computed with a file stream (large AppImages are not held fully in RAM).
 - **Forks:** The “Update AUR” job runs only when `github.repository == 'firtoz/recordly-aur'`, so forks do not run a failing cron against missing secrets. Rename the repo literal in [`.github/workflows/update-aur.yml`](./.github/workflows/update-aur.yml) if you move the canonical copy.
 
 ## License
 
-MIT. See Recordly upstream [LICENSE.md](https://github.com/webadderall/Recordly/blob/main/LICENSE.md).
+AGPL-3.0-or-later (with MIT attribution for upstream OpenScreen code in the same file). See Recordly [LICENSE.md](https://github.com/webadderall/Recordly/blob/main/LICENSE.md).

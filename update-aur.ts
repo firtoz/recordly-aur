@@ -126,8 +126,8 @@ function validatePatchedPkgbuild(
 	if (!/^\t'[0-9a-f]{64}'.*# AppImage/m.test(content)) {
 		die("PKGBUILD: missing tab-indented # AppImage sha256sums line (template format drift?)");
 	}
-	if (!/^\t'[0-9a-f]{64}'.*# Upstream MIT LICENSE/m.test(content)) {
-		die("PKGBUILD: missing tab-indented # Upstream MIT LICENSE sha256sums line (template format drift?)");
+	if (!/^\t'[0-9a-f]{64}'.*# Upstream AGPL LICENSE/m.test(content)) {
+		die("PKGBUILD: missing tab-indented # Upstream AGPL LICENSE sha256sums line (template format drift?)");
 	}
 }
 
@@ -183,8 +183,8 @@ async function verifyPackagingOnly(): Promise<void> {
 			`\t'${appimageSha}' # AppImage v\${pkgver}`,
 		);
 		pkgbuild = pkgbuild.replace(
-			/^\t'[0-9a-f]{64}'.*# Upstream MIT LICENSE.*/m,
-			`\t'${licenseSha}' # Upstream MIT LICENSE`,
+			/^\t'[0-9a-f]{64}'.*# Upstream AGPL LICENSE.*/m,
+			`\t'${licenseSha}' # Upstream AGPL LICENSE`,
 		);
 		validatePatchedPkgbuild(pkgbuild, pkgver, appimageSha, licenseSha);
 		await writeFile(join(pkgDir, "PKGBUILD"), pkgbuild);
@@ -291,8 +291,8 @@ async function main(): Promise<void> {
 			`\t'${appimageSha}' # AppImage v\${pkgver}`,
 		);
 		pkgbuild = pkgbuild.replace(
-			/^\t'[0-9a-f]{64}'.*# Upstream MIT LICENSE.*/m,
-			`\t'${licenseSha}' # Upstream MIT LICENSE`,
+			/^\t'[0-9a-f]{64}'.*# Upstream AGPL LICENSE.*/m,
+			`\t'${licenseSha}' # Upstream AGPL LICENSE`,
 		);
 		validatePatchedPkgbuild(pkgbuild, pkgver, appimageSha, licenseSha);
 		await writeFile(join(aurDir, "PKGBUILD"), pkgbuild);

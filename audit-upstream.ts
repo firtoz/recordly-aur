@@ -78,11 +78,11 @@ function parsePublishedPkgbuild(text: string): {
 	const pkgrel = /^pkgrel=(.+)$/m.exec(text)?.[1]?.trim().replace(/^["']|["']$/g, "") ?? "?";
 	if (!pkgver) die("Could not parse pkgver from AUR PKGBUILD");
 	const appM = /^\t'([0-9a-f]{64})'.*# AppImage/m.exec(text);
-	const licM = /^\t'([0-9a-f]{64})'.*# Upstream MIT LICENSE/m.exec(text);
+	const licM = /^\t'([0-9a-f]{64})'.*# Upstream AGPL LICENSE/m.exec(text);
 	if (!appM) die("Could not parse AppImage sha256 line (# AppImage) from AUR PKGBUILD");
 	if (!licM) {
 		die(
-			"Could not parse LICENSE sha256 line (# Upstream MIT LICENSE) from AUR PKGBUILD",
+			"Could not parse LICENSE sha256 line (# Upstream AGPL LICENSE) from AUR PKGBUILD",
 		);
 	}
 	return {
