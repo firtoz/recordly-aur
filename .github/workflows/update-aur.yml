@@ -25,7 +25,7 @@ jobs:
     if: github.repository == 'firtoz/recordly-aur'
     runs-on: ubuntu-latest
     container:
-      image: archlinux:latest
+      image: archlinux@sha256:32c78c548c1a3f9db43bc25fb9f47d8bf5efff49a1da3810bb60790b4202d657
     env:
       # Cron = really push; manual run = dry run unless "push" is checked
       PUSH_TO_AUR: ${{ github.event_name == 'schedule' || github.event.inputs.push == 'true' }}
@@ -40,7 +40,9 @@ jobs:
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Checkout helper repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
 
       - name: Validate AUR SSH key (push runs only)
         if: env.PUSH_TO_AUR == 'true'
@@ -104,15 +106,18 @@ jobs:
           chown -R builder:builder "${HOME}" "${GITHUB_WORKSPACE}"
 
       - name: Run update script
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_INPUT_FORCE: ${{ github.event.inputs.force }}
         run: |
           export PATH="${HOME}/.bun/bin:${PATH}"
           # Bun/git subprocesses may not see the same HOME as the shell; force SSH options.
           export GIT_SSH_COMMAND="ssh -i ${HOME}/.ssh/aur_key -o UserKnownHostsFile=${HOME}/.ssh/known_hosts -o StrictHostKeyChecking=yes"
           run_cmd="bun run update-aur.ts"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force }}" = "true" ]; then
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${WORKFLOW_INPUT_FORCE}" = "true" ]; then
             run_cmd="$run_cmd --force"
           fi
-          if [ "${{ env.PUSH_TO_AUR }}" = "true" ]; then
+          if [ "${PUSH_TO_AUR}" = "true" ]; then
             runuser -u builder -- env HOME="${HOME}" PATH="${PATH}" GIT_SSH_COMMAND="${GIT_SSH_COMMAND}" \
               bash -lc "cd \"${GITHUB_WORKSPACE}\" && $run_cmd"
           else

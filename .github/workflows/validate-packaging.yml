@@ -12,7 +12,7 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     container:
-      image: archlinux:latest
+      image: archlinux@sha256:32c78c548c1a3f9db43bc25fb9f47d8bf5efff49a1da3810bb60790b4202d657
     steps:
       - name: Install dependencies
         run: pacman -Syu --noconfirm base-devel git curl unzip
@@ -23,7 +23,9 @@ jobs:
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
 
       - name: Check AUR pkgver vs GitHub releases/latest
         env:
