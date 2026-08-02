@@ -42,8 +42,9 @@ This installs `recordly-bin-local` and a “Recordly (Local)” menu entry. Unin
 
 ## CI: safety and forks
 
-- **Host keys:** The workflow runs `ssh-keyscan` for `aur.archlinux.org` and uses `StrictHostKeyChecking yes` with that `known_hosts` file (no blind `accept-new` / `no`).
+- **Host keys:** The workflow runs `ssh-keyscan` for `aur.archlinux.org` and uses `StrictHostKeyChecking yes` with that `known_hosts` file (no blind `accept-new` / `no`). SSH setup runs only when the job will push.
 - **Secret:** On push runs, the workflow checks that `AUR_SSH_KEY` is non-empty and looks like a PEM private key (only the first line is inspected in logs).
+- **AUR outages:** `update-aur.ts` clones anonymously over HTTPS (SSH only for push), retries transient failures (including “AUR is down due to maintenance”), and soft-skips scheduled/dry-run jobs after retries so cron does not stay red during AUR maintenance. Manual **push** runs still fail hard so you notice.
 - **PKGBUILD patch:** `update-aur.ts` asserts after editing that placeholder checksums are gone, `pkgver` matches, both hashes appear, and the tab-indented `# AppImage` / `# Upstream AGPL LICENSE` lines still match the expected shape.
 - **Pre-publish verify:** After patching, the script runs `makepkg --verifysource -C` in the AUR tree so checksums are checked against a **second** fresh download (not only the bytes used to fill `sha256sums`). If upstream replaces a release asset after you publish, users see `FAILED` until you bump `pkgrel` with new sums (e.g. `FORCE=1 bun run update-aur.ts`). PRs and pushes also run [`validate-packaging.yml`](./.github/workflows/validate-packaging.yml): `bun run check-aur-vs-latest` (AUR `pkgver` must not be ahead of GitHub Latest), then `bun run verify-packaging` (latest GitHub release vs a patched PKGBUILD; no AUR clone), then `bun run audit-upstream` (published AUR checksums vs live downloads).
 - **Downloads:** Release assets are streamed to disk; SHA-256 is computed with a file stream (large AppImages are not held fully in RAM).

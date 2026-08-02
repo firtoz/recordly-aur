@@ -7,6 +7,10 @@
  * Env: RECORDLY_TEMPLATE_DIR — PKGBUILD + recordly.desktop directory (default: script dir)
  * Env: RECORDLY_APPIMAGE_PATH — use this AppImage file instead of downloading
  * Env: UPSTREAM_REPO (default webadderall/Recordly), AUR_PKG (default recordly-bin)
+ * Env: GITHUB_EVENT_NAME=schedule — soft-skip when AUR is under maintenance (cron)
+ * Env: AUR_SOFT_FAIL_TRANSIENT=1|0 — force soft-skip / hard-fail on AUR outages
+ *
+ * Clone uses anonymous HTTPS; SSH is only required for push (GIT_SSH_COMMAND / IdentityFile).
  *
  * Run: bun update-aur.ts   |   bun update-aur.ts --dry-run   |   bun update-aur.ts --verify-only
  */
@@ -83,6 +87,118 @@ function run(
 		die(`Command failed (${r.exitCode}): ${cmd} ${args.join(" ")}`);
 	}
 	return { stdout: inherit ? "" : (r.stdout?.toString().trimEnd() ?? "") };
+}
+
+/** Run a command capturing stdout/stderr (still echoed), without exiting on failure. */
+function runCapturing(
+	cmd: string,
+	args: string[],
+	opts: { cwd: string },
+): { exitCode: number; stdout: string; stderr: string } {
+	const r = Bun.spawnSync({
+		cmd: [cmd, ...args],
+		cwd: opts.cwd,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const stdout = r.stdout?.toString() ?? "";
+	const stderr = r.stderr?.toString() ?? "";
+	if (stdout) process.stdout.write(stdout);
+	if (stderr) process.stderr.write(stderr);
+	return { exitCode: r.exitCode ?? 1, stdout, stderr };
+}
+
+/** AUR maintenance / brief network blips — safe to retry or soft-skip on cron. */
+function isTransientAurFailure(output: string): boolean {
+	return (
+		/AUR is down due to maintenance/i.test(output) ||
+		/Could not resolve hostname/i.test(output) ||
+		/Connection timed out/i.test(output) ||
+		/Connection reset/i.test(output) ||
+		/Network is unreachable/i.test(output) ||
+		/Temporary failure in name resolution/i.test(output) ||
+		/unable to access/i.test(output)
+	);
+}
+
+/**
+ * Soft-skip cron/dry-run when AUR is in maintenance (or similar); hard-fail manual push.
+ * Env AUR_SOFT_FAIL_TRANSIENT=0 forces hard fail; =1 forces soft skip.
+ */
+function shouldSoftFailTransient(): boolean {
+	const override = process.env.AUR_SOFT_FAIL_TRANSIENT;
+	if (override === "0" || override === "false") return false;
+	if (override === "1" || override === "true") return true;
+	return dryRun || process.env.GITHUB_EVENT_NAME === "schedule";
+}
+
+function softSkipOrDie(msg: string): never {
+	if (shouldSoftFailTransient()) {
+		console.warn(msg);
+		console.warn("Soft-skipping this run (schedule/dry-run). Next cron or a manual push will retry.");
+		process.exit(0);
+	}
+	die(msg);
+}
+
+async function cloneAurRepo(workDir: string, aurDir: string): Promise<void> {
+	// Anonymous HTTPS clone for reads; SSH is only needed to push.
+	const httpsUrl = `https://aur.archlinux.org/${aurPkg}.git`;
+	const maxAttempts = 4;
+	let lastOutput = "";
+	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		await rm(aurDir, { recursive: true, force: true });
+		const result = runCapturing("git", ["clone", "--depth", "1", httpsUrl, aurDir], {
+			cwd: workDir,
+		});
+		lastOutput = `${result.stdout}\n${result.stderr}`;
+		if (result.exitCode === 0) return;
+
+		const transient = isTransientAurFailure(lastOutput);
+		if (!transient || attempt === maxAttempts) break;
+
+		const delayMs = 5_000 * 2 ** (attempt - 1);
+		console.warn(
+			`AUR clone failed (attempt ${attempt}/${maxAttempts}, transient); retrying in ${delayMs / 1000}s...`,
+		);
+		await Bun.sleep(delayMs);
+	}
+
+	if (isTransientAurFailure(lastOutput)) {
+		softSkipOrDie(
+			`AUR clone failed after ${maxAttempts} attempts (likely maintenance/outage):\n${lastOutput.trim()}`,
+		);
+	}
+	die(`Command failed: git clone --depth 1 ${httpsUrl} ${aurDir}`);
+}
+
+async function pushAurRepo(aurDir: string): Promise<void> {
+	const sshUrl = `ssh://aur@aur.archlinux.org/${aurPkg}.git`;
+	run("git", ["remote", "set-url", "origin", sshUrl], { cwd: aurDir, inherit: true });
+
+	const maxAttempts = 4;
+	let lastOutput = "";
+	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		const result = runCapturing("git", ["push"], { cwd: aurDir });
+		lastOutput = `${result.stdout}\n${result.stderr}`;
+		if (result.exitCode === 0) return;
+
+		const transient = isTransientAurFailure(lastOutput);
+		if (!transient || attempt === maxAttempts) break;
+
+		const delayMs = 5_000 * 2 ** (attempt - 1);
+		console.warn(
+			`AUR push failed (attempt ${attempt}/${maxAttempts}, transient); retrying in ${delayMs / 1000}s...`,
+		);
+		await Bun.sleep(delayMs);
+	}
+
+	if (isTransientAurFailure(lastOutput)) {
+		softSkipOrDie(
+			`AUR push failed after ${maxAttempts} attempts (likely maintenance/outage):\n${lastOutput.trim()}`,
+		);
+	}
+	die(`Command failed: git push (${sshUrl})`);
 }
 
 async function fetchLatestTag(): Promise<string> {
@@ -222,10 +338,7 @@ async function main(): Promise<void> {
 	const workDir = await mkdtemp(join(tmpdir(), "recordly-aur-"));
 	const aurDir = join(workDir, "aur");
 	try {
-		run("git", ["clone", "--depth", "1", `ssh://aur@aur.archlinux.org/${aurPkg}.git`, aurDir], {
-			cwd: workDir,
-			inherit: true,
-		});
+		await cloneAurRepo(workDir, aurDir);
 
 		let currentVer = "";
 		let currentRel = 1;
@@ -323,7 +436,7 @@ async function main(): Promise<void> {
 		run("git", ["config", "user.email", "aur@firtoz.com"], { cwd: aurDir, inherit: true });
 		run("git", ["config", "user.name", "recordly-aur"], { cwd: aurDir, inherit: true });
 		run("git", ["commit", "-m", `Update to ${pkgver}`], { cwd: aurDir, inherit: true });
-		run("git", ["push"], { cwd: aurDir, inherit: true });
+		await pushAurRepo(aurDir);
 
 		console.log(`Pushed ${aurPkg} ${pkgver} to AUR.`);
 	} finally {

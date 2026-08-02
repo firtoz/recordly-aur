@@ -31,7 +31,7 @@ jobs:
       PUSH_TO_AUR: ${{ github.event_name == 'schedule' || github.event.inputs.push == 'true' }}
     steps:
       - name: Install dependencies
-        # openssh: required for git clone ssh://aur@… (git lists it as optional on Arch)
+        # openssh: required for git push ssh://aur@… (clone uses HTTPS; git lists openssh as optional on Arch)
         run: pacman -Syu --noconfirm base-devel git curl openssh unzip
 
       - name: Install Bun
@@ -40,7 +40,7 @@ jobs:
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Checkout helper repo
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
@@ -75,6 +75,7 @@ jobs:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
 
       - name: Set up SSH for AUR
+        if: env.PUSH_TO_AUR == 'true'
         run: |
           install -m 700 -d "${HOME}/.ssh"
           ssh-keyscan -t ed25519,rsa -H aur.archlinux.org >> "${HOME}/.ssh/known_hosts"
@@ -112,6 +113,7 @@ jobs:
         run: |
           export PATH="${HOME}/.bun/bin:${PATH}"
           # Bun/git subprocesses may not see the same HOME as the shell; force SSH options.
+          # Only needed when pushing; harmless on dry-run (HTTPS clone, no push).
           export GIT_SSH_COMMAND="ssh -i ${HOME}/.ssh/aur_key -o UserKnownHostsFile=${HOME}/.ssh/known_hosts -o StrictHostKeyChecking=yes"
           run_cmd="bun run update-aur.ts"
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${WORKFLOW_INPUT_FORCE}" = "true" ]; then
