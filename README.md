@@ -53,3 +53,7 @@ This installs `recordly-bin-local` and a “Recordly (Local)” menu entry. Unin
 ## License
 
 AGPL-3.0-or-later (with MIT attribution for upstream OpenScreen code in the same file). See Recordly [LICENSE.md](https://github.com/webadderall/Recordly/blob/main/LICENSE.md).
+
+## Development runtime
+
+Use Node 24.22.1 (`.nvmrc`) and Bun 1.4.4 (`packageManager`). Both workflows select these versions explicitly; packaging validation runs a frozen install, TypeScript check and dependency audit first.
